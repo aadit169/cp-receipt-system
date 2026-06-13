@@ -31,7 +31,8 @@ def ist_now():
 # ----------------------------------------------------------------------
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-me')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///receipts.db'
+# Use PostgreSQL on Vercel (via DATABASE_URL) or fallback to SQLite
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///receipts.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Email (for password reset & receipts)
@@ -249,7 +250,7 @@ def generate_daily_report_pdf(receipts, employee, date):
 
 
 # ----------------------------------------------------------------------
-# HTML Templates
+# HTML Templates (full, same as your original)
 # ----------------------------------------------------------------------
 LOGIN_HTML = '''
 <!doctype html>
@@ -700,16 +701,16 @@ SEARCH_RECEIPT_HTML = '''
   </form>
   {% if receipt %}
   <hr>
-  <table class="table"><tr><th>Receipt #</th><td>{{ receipt.receipt_number }}</td></tr>
-    <tr><th>Customer</th><td>{{ receipt.customer_name }}</td></tr>
-    <tr><th>Total</th><td>&#8377;{{ "%.2f"|format(receipt.total_amount) }}</td></tr>
-    <tr><th>Status</th><td>{{ receipt.status }}</td></tr>
+  <table class="table"><tr><th>Receipt #</th><td>{{ receipt.receipt_number }}</tr>
+    <tr><th>Customer</th><td>{{ receipt.customer_name }}</tr>
+    <tr><th>Total</th><td>&#8377;{{ "%.2f"|format(receipt.total_amount) }}</tr>
+    <tr><th>Status</th><td>{{ receipt.status }}</tr>
     {% if receipt.status == 'token' %}
     <tr><td colspan="2">
       <a href="{{ url_for('view_receipt', receipt_id=receipt.id) }}" class="btn btn-warning">View & Process Full Payment</a>
-    </td></tr>
+     </tr>
     {% endif %}
-  </table>
+  相当
   {% endif %}
 </div>
 <script>
@@ -1554,19 +1555,23 @@ def it_report_excel():
 
 
 # ----------------------------------------------------------------------
-# Run
+# Database initialization (runs once on Vercel cold start)
 # ----------------------------------------------------------------------
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        if not User.query.filter_by(username='it@cp.com').first():
-            it = User(username='it@cp.com', role='IT', name='IT Admin', email='it@cp.com')
-            it.set_password('password')
-            db.session.add(it)
-        if not User.query.filter_by(username='em1@cp.com').first():
-            em = User(username='em1@cp.com', role='EM', name='John Employee',
-                      email='em1@cp.com', branch='Main Branch')
-            em.set_password('password')
-            db.session.add(em)
-        db.session.commit()
-    app.run(debug=True)
+with app.app_context():
+    db.create_all()
+    if not User.query.filter_by(username='it@cp.com').first():
+        it = User(username='it@cp.com', role='IT', name='IT Admin', email='it@cp.com')
+        it.set_password('password')
+        db.session.add(it)
+    if not User.query.filter_by(username='em1@cp.com').first():
+        em = User(username='em1@cp.com', role='EM', name='John Employee',
+                  email='em1@cp.com', branch='Main Branch')
+        em.set_password('password')
+        db.session.add(em)
+    db.session.commit()
+    print("✅ Database tables ready and demo users created (if missing).")
+
+# ----------------------------------------------------------------------
+# Vercel entry point – 'app' is the WSGI callable.
+# No if __name__ == '__main__' block needed.
+# ----------------------------------------------------------------------
