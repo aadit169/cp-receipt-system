@@ -30,7 +30,12 @@ def ist_now():
 # App setup
 # ----------------------------------------------------------------------
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-me')
+# Use DATABASE_URL if provided (for PostgreSQL), otherwise use SQLite in /tmp (writable on Vercel)
+if os.environ.get('DATABASE_URL'):
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+else:
+    # Vercel: only /tmp is writable
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/receipts.db'
 # Use PostgreSQL on Vercel (via DATABASE_URL) or fallback to SQLite
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///receipts.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
