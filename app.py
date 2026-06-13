@@ -47,7 +47,7 @@ app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['IT_EMAIL'] = os.environ.get('IT_EMAIL', 'it@cp.com')
 
-UPLOAD_FOLDER = '/tmp/uploads'
+UPLOAD_FOLDER = 'static/uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -1367,12 +1367,7 @@ def em_profile():
         dob_str = request.form['dob']
         if dob_str:
             current_user.dob = datetime.datetime.strptime(dob_str, '%Y-%m-%d').date()
-        if 'photo' in request.files:
-            file = request.files['photo']
-            if file.filename:
-                filename = secure_filename(file.filename)
-                file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-                current_user.photo = filename
+        # Photo upload disabled on Vercel (read‑only filesystem)
         db.session.commit()
         flash('Profile updated.', 'success')
         return redirect(url_for('em_profile'))
