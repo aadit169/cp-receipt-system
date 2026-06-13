@@ -6,7 +6,7 @@ from threading import Thread
 
 from flask import (
     Flask, render_template_string, request, redirect, url_for, flash,
-    send_file, abort, session
+    send_file, abort
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -14,7 +14,6 @@ from flask_login import (
     login_required, current_user
 )
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 from itsdangerous import URLSafeTimedSerializer as Serializer
 
 from fpdf import FPDF
@@ -30,26 +29,17 @@ def ist_now():
 # App setup
 # ----------------------------------------------------------------------
 app = Flask(__name__)
-# Use DATABASE_URL if provided (for PostgreSQL), otherwise use SQLite in /tmp (writable on Vercel)
-if os.environ.get('DATABASE_URL'):
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
-else:
-    # Vercel: only /tmp is writable
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/receipts.db'
-# Use PostgreSQL on Vercel (via DATABASE_URL) or fallback to SQLite
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///receipts.db')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-me')
+# Use in-memory database – no file writes, perfect for Vercel
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Email (for password reset & receipts)
+# Email (optional – set env vars on Vercel if you want real emails)
 app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', '')
 app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
 app.config['IT_EMAIL'] = os.environ.get('IT_EMAIL', 'it@cp.com')
-
-UPLOAD_FOLDER = 'static/uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -62,12 +52,11 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
-    role = db.Column(db.String(10), nullable=False)  # 'EM' or 'IT'
+    role = db.Column(db.String(10), nullable=False)
     name = db.Column(db.String(120))
     email = db.Column(db.String(120))
     dob = db.Column(db.Date)
     phone = db.Column(db.String(20))
-    photo = db.Column(db.String(200))
     branch = db.Column(db.String(120))
     reset_token = db.Column(db.String(200))
     reset_token_expiry = db.Column(db.DateTime)
@@ -174,7 +163,7 @@ def async_send_email(*args, **kwargs):
 
 
 # ----------------------------------------------------------------------
-# PDF generators (using INR for latin-1 safety)
+# PDF generators
 # ----------------------------------------------------------------------
 def generate_receipt_pdf(receipt):
     pdf = FPDF()
@@ -255,7 +244,7 @@ def generate_daily_report_pdf(receipts, employee, date):
 
 
 # ----------------------------------------------------------------------
-# HTML Templates (full, same as your original)
+# HTML Templates (full)
 # ----------------------------------------------------------------------
 LOGIN_HTML = '''
 <!doctype html>
@@ -706,16 +695,16 @@ SEARCH_RECEIPT_HTML = '''
   </form>
   {% if receipt %}
   <hr>
-  <table class="table"><tr><th>Receipt #</th><td>{{ receipt.receipt_number }}</tr>
-    <tr><th>Customer</th><td>{{ receipt.customer_name }}</tr>
-    <tr><th>Total</th><td>&#8377;{{ "%.2f"|format(receipt.total_amount) }}</tr>
-    <tr><th>Status</th><td>{{ receipt.status }}</tr>
+  <table class="table"><tr><th>Receipt #</th><td>{{ receipt.receipt_number }}</td></tr>
+    <tr><th>Customer</th><td>{{ receipt.customer_name }}</td></tr>
+    <tr><th>Total</th><td>&#8377;{{ "%.2f"|format(receipt.total_amount) }}</td></tr>
+    <tr><th>Status</th><td>{{ receipt.status }}</td></tr>
     {% if receipt.status == 'token' %}
     <tr><td colspan="2">
       <a href="{{ url_for('view_receipt', receipt_id=receipt.id) }}" class="btn btn-warning">View & Process Full Payment</a>
-     </tr>
+    </td></tr>
     {% endif %}
-  相当
+  曰
   {% endif %}
 </div>
 <script>
@@ -878,13 +867,7 @@ EM_PROFILE_HTML = '''
       <label>Date of Birth</label>
       <input type="date" name="dob" value="{{ user.dob.strftime('%Y-%m-%d') if user.dob else '' }}" class="form-control">
     </div>
-    <div class="mb-3">
-      <label>Photo</label>
-      {% if user.photo %}
-        <img src="{{ url_for('static', filename='uploads/' + user.photo) }}" width="80"><br>
-      {% endif %}
-      <input type="file" name="photo" class="form-control">
-    </div>
+    <!-- Photo upload disabled on Vercel (read‑only filesystem) -->
     <button class="btn btn-success">Save</button>
     <a href="{{ url_for('em_dashboard') }}" class="btn btn-link">Back</a>
   </form>
@@ -944,7 +927,7 @@ IT_DASHBOARD_HTML = '''
     <a href="{{ url_for('it_report_excel', type='all') }}" class="btn btn-outline-success">Excel (All Data)</a>
   </p>
   <table class="table table-striped">
-    <thead><tr><th>Receipt #</th><th>Customer</th><th>Employee</th><th>Branch</th><th>Total</th><th>Paid</th><th>Status</th><th>Date</th></tr></thead>
+    <thead><tr><th>Receipt #</th><th>Customer</th><th>Employee</th><th>Branch</th><th>Total</th><th>Paid</th><th>Status</th><th>Date</th></table></thead>
     <tbody>
     {% for r in receipts %}
     <tr>
@@ -1555,7 +1538,7 @@ def it_report_excel():
 
 
 # ----------------------------------------------------------------------
-# Database initialization (runs once on Vercel cold start)
+# Database initialization – runs once when the app starts
 # ----------------------------------------------------------------------
 with app.app_context():
     db.create_all()
@@ -1569,9 +1552,8 @@ with app.app_context():
         em.set_password('password')
         db.session.add(em)
     db.session.commit()
-    print("✅ Database tables ready and demo users created (if missing).")
+    print("✅ Database tables ready and demo users created (in‑memory).")
 
 # ----------------------------------------------------------------------
 # Vercel entry point – 'app' is the WSGI callable.
-# No if __name__ == '__main__' block needed.
 # ----------------------------------------------------------------------
